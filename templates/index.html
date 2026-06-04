@@ -336,18 +336,20 @@
 
 <script>
     let mediaRecorder = null;
+    let audioStream = null;
     let audioChunks = [];
-    let isRecording = false;
+    let isListening = false;
+    let isProcessingAudio = false;
+
+    const RECORD_CHUNK_MS = 5500;
 
     async function startVoiceOrder() {
-        if (isRecording) {
-            stopVoiceRecording();
+        if (isListening) {
+            stopVoiceOrder();
             return;
         }
 
         try {
-            isRecording = true;
-            audioChunks = [];
             document.getElementById("voiceChat").innerHTML = "";
             setVoiceStatus("Đang khởi động trợ lý order...");
 
@@ -358,52 +360,104 @@
             const data = await response.json();
 
             addChat("AI", data.reply);
-            speak(data.reply);
+            await speakAsync(data.reply);
 
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
+            audioStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
             });
 
-            mediaRecorder = new MediaRecorder(stream, {
-                mimeType: getSupportedAudioMimeType(),
-            });
+            isListening = true;
+            updateVoiceButton(true);
+            setVoiceStatus("Đang lắng nghe liên tục... Bạn cứ nói món muốn đặt.");
 
-            mediaRecorder.ondataavailable = function(event) {
-                if (event.data && event.data.size > 0) {
-                    audioChunks.push(event.data);
-                }
-            };
-
-            mediaRecorder.onstop = async function() {
-                stream.getTracks().forEach(track => track.stop());
-                await sendRecordedAudio();
-            };
-
-            mediaRecorder.start();
-            setVoiceStatus("Đang nghe... Nói món bạn muốn đặt. Bấm lại nút để dừng.");
-
-            setTimeout(function() {
-                if (isRecording) {
-                    stopVoiceRecording();
-                }
-            }, 6000);
+            startRecordingChunk();
 
         } catch (error) {
             console.error("Microphone error:", error);
             setVoiceStatus("Không truy cập được microphone. Kiểm tra quyền mic trong Chrome.");
-            isRecording = false;
+            stopVoiceOrder();
         }
     }
 
-    function stopVoiceRecording() {
-        if (!mediaRecorder || mediaRecorder.state !== "recording") {
-            isRecording = false;
+    function startRecordingChunk() {
+        if (!isListening || !audioStream || isProcessingAudio) {
             return;
         }
 
-        setVoiceStatus("Đang gửi giọng nói lên AI...");
-        mediaRecorder.stop();
-        isRecording = false;
+        audioChunks = [];
+
+        mediaRecorder = new MediaRecorder(audioStream, {
+            mimeType: getSupportedAudioMimeType(),
+        });
+
+        mediaRecorder.ondataavailable = function(event) {
+            if (event.data && event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = async function() {
+            if (!isListening || isProcessingAudio) {
+                return;
+            }
+
+            isProcessingAudio = true;
+            setVoiceStatus("Đang nhận diện giọng nói...");
+
+            try {
+                await sendRecordedAudio();
+            } finally {
+                isProcessingAudio = false;
+
+                if (isListening) {
+                    setVoiceStatus("Đang lắng nghe tiếp...");
+                    setTimeout(startRecordingChunk, 300);
+                }
+            }
+        };
+
+        mediaRecorder.start();
+
+        setTimeout(function() {
+            if (
+                isListening &&
+                mediaRecorder &&
+                mediaRecorder.state === "recording"
+            ) {
+                mediaRecorder.stop();
+            }
+        }, RECORD_CHUNK_MS);
+    }
+
+    function stopVoiceOrder() {
+        isListening = false;
+        isProcessingAudio = false;
+
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+        }
+
+        if (audioStream) {
+            audioStream.getTracks().forEach(track => track.stop());
+            audioStream = null;
+        }
+
+        updateVoiceButton(false);
+        setVoiceStatus("Đã dừng nghe. Bấm nút để bắt đầu lại.");
+    }
+
+    function updateVoiceButton(listening) {
+        const buttonSmall = document.querySelector(".voice-button small");
+
+        if (!buttonSmall) {
+            return;
+        }
+
+        buttonSmall.innerText = listening ? "⛔ Đang nghe - bấm để dừng" : "👆 Bắt đầu";
     }
 
     function getSupportedAudioMimeType() {
@@ -419,16 +473,17 @@
 
     async function sendRecordedAudio() {
         if (!audioChunks.length) {
-            setVoiceStatus("Không thu được âm thanh, vui lòng thử lại.");
             return;
         }
 
         try {
-            setVoiceStatus("Đang nhận diện giọng nói...");
-
             const audioBlob = new Blob(audioChunks, {
                 type: getSupportedAudioMimeType() || "audio/webm",
             });
+
+            if (audioBlob.size < 2500) {
+                return;
+            }
 
             const formData = new FormData();
             formData.append("audio", audioBlob, "voice.webm");
@@ -449,7 +504,6 @@
             const text = (data.text || "").trim();
 
             if (!text) {
-                setVoiceStatus("Không nghe rõ, vui lòng bấm nút và nói lại.");
                 return;
             }
 
@@ -472,24 +526,38 @@
         chat.scrollTop = chat.scrollHeight;
     }
 
+    function speakAsync(text) {
+        return new Promise(resolve => {
+            speechSynthesis.cancel();
+
+            if (!text) {
+                resolve();
+                return;
+            }
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = "vi-VN";
+            utterance.rate = 1.15;
+            utterance.pitch = 1;
+
+            const voices = speechSynthesis.getVoices();
+            const vietnameseVoice = voices.find(voice =>
+                voice.lang.toLowerCase().includes("vi")
+            );
+
+            if (vietnameseVoice) {
+                utterance.voice = vietnameseVoice;
+            }
+
+            utterance.onend = resolve;
+            utterance.onerror = resolve;
+
+            speechSynthesis.speak(utterance);
+        });
+    }
+
     function speak(text) {
-        speechSynthesis.cancel();
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "vi-VN";
-        utterance.rate = 1.15;
-        utterance.pitch = 1;
-
-        const voices = speechSynthesis.getVoices();
-        const vietnameseVoice = voices.find(voice =>
-            voice.lang.toLowerCase().includes("vi")
-        );
-
-        if (vietnameseVoice) {
-            utterance.voice = vietnameseVoice;
-        }
-
-        speechSynthesis.speak(utterance);
+        speakAsync(text);
     }
 
     speechSynthesis.onvoiceschanged = function() {
@@ -510,14 +578,16 @@
         document.getElementById("cartContent").innerHTML = data.cart_html;
 
         addChat("AI", data.reply);
-        speak(data.reply);
+        setVoiceStatus("AI đang trả lời...");
+        await speakAsync(data.reply);
 
         if (data.intent === "confirm") {
+            stopVoiceOrder();
             window.location.href = data.checkout_url;
             return;
         }
 
-        setVoiceStatus("Bấm nút để nói tiếp.");
+        setVoiceStatus("Đang lắng nghe tiếp...");
     }
 </script>
 <script>
