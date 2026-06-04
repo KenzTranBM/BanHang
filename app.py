@@ -5,7 +5,7 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
-
+from flask import Response
 import requests
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from openai import OpenAI
@@ -1193,6 +1193,30 @@ def parse_remote_order_text(order_text):
         })
 
     return result
+
+@app.route("/api/tts", methods=["POST"])
+def api_tts():
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "").strip()
+
+    if not text:
+        return jsonify({"error": "Missing text"}), 400
+
+    try:
+        speech = client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice="alloy",
+            input=text,
+            response_format="mp3",
+        )
+
+        return Response(
+            speech.content,
+            mimetype="audio/mpeg",
+        )
+
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
