@@ -5,9 +5,9 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
-from flask import Response
+
 import requests
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 from openai import OpenAI
 
 app = Flask(__name__)
@@ -1200,10 +1200,10 @@ def api_tts():
     text = data.get("text", "").strip()
 
     if not text:
-        return jsonify({"error": "Missing text"}), 400
+        return jsonify({"error": "missing text"}), 400
 
     try:
-        speech = client.audio.speech.create(
+        speech = openai_client.audio.speech.create(
             model="gpt-4o-mini-tts",
             voice="alloy",
             input=text,
