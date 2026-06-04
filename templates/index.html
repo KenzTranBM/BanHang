@@ -334,20 +334,31 @@
         </section>
     </div>
 
-    <script>
+<script>
     let isVoiceOrdering = false;
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 
+    async function checkMicrophonePermission() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error("Trình duyệt không hỗ trợ getUserMedia.");
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+        });
+
+        stream.getTracks().forEach(track => track.stop());
+    }
+
     if (!recognition) {
-        setVoiceStatus("Trình duyệt chưa hỗ trợ giọng nói. Hãy dùng Chrome.");
+        setVoiceStatus("Trình duyệt chưa hỗ trợ nhận diện giọng nói.");
     } else {
         recognition.lang = "vi-VN";
         recognition.maxAlternatives = 1;
         recognition.interimResults = false;
         recognition.continuous = true;
-        recognition.interimResults = false;
 
         recognition.onresult = async function(event) {
             const text = event.results[event.results.length - 1][0].transcript;
@@ -360,13 +371,19 @@
             await sendVoiceOrder(text);
         };
 
-        recognition.onerror = function() {
-            setVoiceStatus("Micro bị lỗi hoặc chưa được cấp quyền.");
+        recognition.onerror = function(event) {
+            console.error("SpeechRecognition error:", event.error);
+            setVoiceStatus(`Lỗi nhận diện giọng nói: ${event.error}`);
+            isVoiceOrdering = false;
         };
 
         recognition.onend = function() {
             if (isVoiceOrdering) {
-                recognition.start();
+                try {
+                    recognition.start();
+                } catch (error) {
+                    console.error("Không restart được recognition:", error);
+                }
             }
         };
     }
@@ -376,21 +393,28 @@
             return;
         }
 
-        isVoiceOrdering = true;
-        document.getElementById("voiceChat").innerHTML = "";
-        setVoiceStatus("Đang khởi động trợ lý order...");
+        try {
+            await checkMicrophonePermission();
 
-        const response = await fetch("{{ url_for('voice_start') }}", {
-            method: "POST",
-        });
+            isVoiceOrdering = true;
+            document.getElementById("voiceChat").innerHTML = "";
+            setVoiceStatus("Đang khởi động trợ lý order...");
 
-        const data = await response.json();
+            const response = await fetch("{{ url_for('voice_start') }}", {
+                method: "POST",
+            });
 
-        addChat("AI", data.reply);
-        speak(data.reply);
-        setVoiceStatus("Đang lắng nghe... Bạn cứ nói món muốn đặt.");
+            const data = await response.json();
 
-        recognition.start();
+            addChat("AI", data.reply);
+            speak(data.reply);
+            setVoiceStatus("Đang lắng nghe... Bạn cứ nói món muốn đặt.");
+
+            recognition.start();
+        } catch (error) {
+            console.error("Microphone error:", error);
+            setVoiceStatus("Không truy cập được microphone. Kiểm tra quyền mic trong Chrome.");
+        }
     }
 
     function setVoiceStatus(message) {
@@ -422,9 +446,10 @@
 
         speechSynthesis.speak(utterance);
     }
+
     speechSynthesis.onvoiceschanged = function() {
-    speechSynthesis.getVoices();
-};
+        speechSynthesis.getVoices();
+    };
 
     async function sendVoiceOrder(text) {
         setVoiceStatus("AI đang phân tích order...");
