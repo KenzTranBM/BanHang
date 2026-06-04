@@ -1,5 +1,7 @@
 # app.py
 import json
+import os
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
@@ -915,6 +917,41 @@ def add_to_cart(drink_id):
         quantity=1,
     )
     return redirect(url_for("index"))
+
+
+
+@app.route("/api/transcribe", methods=["POST"])
+def transcribe_audio():
+    if "audio" not in request.files:
+        return jsonify({"error": "Không có file audio"}), 400
+
+    audio_file = request.files["audio"]
+    suffix = Path(audio_file.filename or "voice.webm").suffix or ".webm"
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+        audio_path = temp_file.name
+        audio_file.save(audio_path)
+
+    try:
+        with open(audio_path, "rb") as file:
+            transcript = openai_client.audio.transcriptions.create(
+                model="gpt-4o-mini-transcribe",
+                file=file,
+                language="vi",
+            )
+
+        text = (transcript.text or "").strip()
+        return jsonify({"text": text})
+
+    except Exception as error:
+        print("Lỗi transcribe audio:", error)
+        return jsonify({"error": "Không nhận diện được giọng nói"}), 500
+
+    finally:
+        try:
+            os.remove(audio_path)
+        except OSError:
+            pass
 
 
 @app.route("/api/voice-start", methods=["POST"])
