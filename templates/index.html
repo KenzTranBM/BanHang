@@ -526,43 +526,56 @@
         chat.scrollTop = chat.scrollHeight;
     }
 
-    function speakAsync(text) {
-        return new Promise(resolve => {
-            speechSynthesis.cancel();
 
-            if (!text) {
-                resolve();
-                return;
-            }
+    let currentAiAudio = null;
 
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = "vi-VN";
-            utterance.rate = 1.15;
-            utterance.pitch = 1;
+async function speakAsync(text) {
+    if (!text) {
+        return;
+    }
 
-            const voices = speechSynthesis.getVoices();
-            const vietnameseVoice = voices.find(voice =>
-                voice.lang.toLowerCase().includes("vi")
-            );
+    try {
+        if (currentAiAudio) {
+            currentAiAudio.pause();
+            currentAiAudio = null;
+        }
 
-            if (vietnameseVoice) {
-                utterance.voice = vietnameseVoice;
-            }
-
-            utterance.onend = resolve;
-            utterance.onerror = resolve;
-
-            speechSynthesis.speak(utterance);
+        const response = await fetch("/api/tts", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                text: text,
+            }),
         });
-    }
 
-    function speak(text) {
-        speakAsync(text);
-    }
+        if (!response.ok) {
+            console.error("TTS error:", await response.text());
+            return;
+        }
 
-    speechSynthesis.onvoiceschanged = function() {
-        speechSynthesis.getVoices();
-    };
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        currentAiAudio = new Audio(audioUrl);
+
+        await currentAiAudio.play();
+
+        await new Promise(resolve => {
+            currentAiAudio.onended = resolve;
+            currentAiAudio.onerror = resolve;
+        });
+
+        URL.revokeObjectURL(audioUrl);
+    } catch (error) {
+        console.error("Play AI voice error:", error);
+    }
+}
+
+function speak(text) {
+    speakAsync(text);
+}
 
     async function sendVoiceOrder(text) {
         setVoiceStatus("AI đang phân tích order...");
