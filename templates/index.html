@@ -335,68 +335,19 @@
     </div>
 
 <script>
-    let isVoiceOrdering = false;
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = SpeechRecognition ? new SpeechRecognition() : null;
-
-    async function checkMicrophonePermission() {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error("Trình duyệt không hỗ trợ getUserMedia.");
-        }
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-        });
-
-        stream.getTracks().forEach(track => track.stop());
-    }
-
-    if (!recognition) {
-        setVoiceStatus("Trình duyệt chưa hỗ trợ nhận diện giọng nói.");
-    } else {
-        recognition.lang = "vi-VN";
-        recognition.maxAlternatives = 1;
-        recognition.interimResults = false;
-        recognition.continuous = true;
-
-        recognition.onresult = async function(event) {
-            const text = event.results[event.results.length - 1][0].transcript;
-
-            if (!isVoiceOrdering) {
-                return;
-            }
-
-            addChat("Khách", text);
-            await sendVoiceOrder(text);
-        };
-
-        recognition.onerror = function(event) {
-            console.error("SpeechRecognition error:", event.error);
-            setVoiceStatus(`Lỗi nhận diện giọng nói: ${event.error}`);
-            isVoiceOrdering = false;
-        };
-
-        recognition.onend = function() {
-            if (isVoiceOrdering) {
-                try {
-                    recognition.start();
-                } catch (error) {
-                    console.error("Không restart được recognition:", error);
-                }
-            }
-        };
-    }
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
 
     async function startVoiceOrder() {
-        if (!recognition) {
+        if (isRecording) {
+            stopVoiceRecording();
             return;
         }
 
         try {
-            await checkMicrophonePermission();
-
-            isVoiceOrdering = true;
+            isRecording = true;
+            audioChunks = [];
             document.getElementById("voiceChat").innerHTML = "";
             setVoiceStatus("Đang khởi động trợ lý order...");
 
@@ -408,12 +359,106 @@
 
             addChat("AI", data.reply);
             speak(data.reply);
-            setVoiceStatus("Đang lắng nghe... Bạn cứ nói món muốn đặt.");
 
-            recognition.start();
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+            });
+
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: getSupportedAudioMimeType(),
+            });
+
+            mediaRecorder.ondataavailable = function(event) {
+                if (event.data && event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = async function() {
+                stream.getTracks().forEach(track => track.stop());
+                await sendRecordedAudio();
+            };
+
+            mediaRecorder.start();
+            setVoiceStatus("Đang nghe... Nói món bạn muốn đặt. Bấm lại nút để dừng.");
+
+            setTimeout(function() {
+                if (isRecording) {
+                    stopVoiceRecording();
+                }
+            }, 6000);
+
         } catch (error) {
             console.error("Microphone error:", error);
             setVoiceStatus("Không truy cập được microphone. Kiểm tra quyền mic trong Chrome.");
+            isRecording = false;
+        }
+    }
+
+    function stopVoiceRecording() {
+        if (!mediaRecorder || mediaRecorder.state !== "recording") {
+            isRecording = false;
+            return;
+        }
+
+        setVoiceStatus("Đang gửi giọng nói lên AI...");
+        mediaRecorder.stop();
+        isRecording = false;
+    }
+
+    function getSupportedAudioMimeType() {
+        const mimeTypes = [
+            "audio/webm;codecs=opus",
+            "audio/webm",
+            "audio/ogg;codecs=opus",
+            "audio/ogg",
+        ];
+
+        return mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || "";
+    }
+
+    async function sendRecordedAudio() {
+        if (!audioChunks.length) {
+            setVoiceStatus("Không thu được âm thanh, vui lòng thử lại.");
+            return;
+        }
+
+        try {
+            setVoiceStatus("Đang nhận diện giọng nói...");
+
+            const audioBlob = new Blob(audioChunks, {
+                type: getSupportedAudioMimeType() || "audio/webm",
+            });
+
+            const formData = new FormData();
+            formData.append("audio", audioBlob, "voice.webm");
+
+            const response = await fetch("{{ url_for('transcribe_audio') }}", {
+                method: "POST",
+                body: formData,
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                console.error("Transcribe error:", data);
+                setVoiceStatus(data.error || "Lỗi nhận diện giọng nói.");
+                return;
+            }
+
+            const text = (data.text || "").trim();
+
+            if (!text) {
+                setVoiceStatus("Không nghe rõ, vui lòng bấm nút và nói lại.");
+                return;
+            }
+
+            addChat("Khách", text);
+            await sendVoiceOrder(text);
+
+        } catch (error) {
+            console.error("Send audio error:", error);
+            setVoiceStatus("Lỗi gửi âm thanh lên máy chủ.");
         }
     }
 
@@ -468,13 +513,11 @@
         speak(data.reply);
 
         if (data.intent === "confirm") {
-            isVoiceOrdering = false;
-            recognition.stop();
             window.location.href = data.checkout_url;
             return;
         }
 
-        setVoiceStatus("Đang lắng nghe tiếp...");
+        setVoiceStatus("Bấm nút để nói tiếp.");
     }
 </script>
 <script>
