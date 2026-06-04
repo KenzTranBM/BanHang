@@ -1,0 +1,37 @@
+<!-- templates/_cart_content.html -->
+{% if not items %}
+<p>Chưa có món nào trong đơn.</p>
+{% else %}
+    {% for item in items %}
+    <div class="cart-item">
+        <strong>
+            {{ item.drink.name }}
+            - {{ "Nhỏ" if item.size == "M" else "Lớn" }}
+            - {{ "Có đá" if item.ice == "yes" else "Không đá" }}
+        </strong>
+
+        <p>Đơn giá: {{ item.price | currency }}</p>
+
+        <div class="cart-row">
+            <form method="post" action="{{ url_for('update_cart', cart_key=item.cart_key) }}">
+                <input type="number" name="quantity" value="{{ item.quantity }}" min="0">
+                <button type="submit">Cập nhật</button>
+            </form>
+
+            <form method="post" action="{{ url_for('remove_from_cart', cart_key=item.cart_key) }}">
+                <button class="danger" type="submit">Xóa</button>
+            </form>
+        </div>
+
+        <p>Tạm tính: {{ item.subtotal | currency }}</p>
+    </div>
+    {% endfor %}
+
+    <div class="total">
+        Tổng: {{ total | currency }}
+    </div>
+
+    <form method="post" action="{{ url_for('checkout') }}">
+        <button class="pay-button" type="submit">Thanh toán</button>
+    </form>
+{% endif %}

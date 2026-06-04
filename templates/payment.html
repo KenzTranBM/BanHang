@@ -1,0 +1,158 @@
+<!-- templates/payment.html -->
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Quét QR thanh toán</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #f3f4f6;
+        }
+
+        .screen {
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .box {
+            background: white;
+            width: 620px;
+            padding: 36px;
+            border-radius: 20px;
+            box-shadow: 0 3px 18px #ccc;
+        }
+
+        .customer-id {
+            font-size: 60px;
+            color: #2563eb;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .qr {
+            width: 360px;
+            max-width: 100%;
+            margin: 16px 0;
+        }
+
+        .amount {
+            font-size: 28px;
+            font-weight: bold;
+            color: #16a34a;
+        }
+
+        .countdown {
+            font-size: 26px;
+            font-weight: bold;
+            color: #dc2626;
+            margin: 18px 0;
+        }
+
+        .status {
+            margin-top: 16px;
+            font-size: 20px;
+            font-weight: bold;
+            color: #ca8a04;
+        }
+
+        .cancel-button {
+            width: 100%;
+            border: none;
+            background: #dc2626;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            margin-top: 22px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="screen">
+        <div class="box">
+            <h1>Quét mã QR để thanh toán</h1>
+
+            <div class="customer-id">ID {{ order.customer_id }}</div>
+
+            <div class="countdown">
+                QR còn hiệu lực:
+                <span id="countdown"></span>
+            </div>
+
+            <img class="qr" src="{{ order.qr_url }}" alt="QR thanh toán">
+
+            <p>Số tiền cần chuyển:</p>
+            <div class="amount">{{ order.total | currency }}</div>
+
+            <p>
+                Nội dung chuyển khoản:
+                <b>{{ order.payment_content }}</b>
+            </p>
+
+            <div class="status" id="paymentStatus">
+                Đang chờ nhận tiền...
+            </div>
+
+            <form method="post" action="{{ url_for('cancel_payment') }}">
+                <button class="cancel-button" type="submit">
+                    Thoát giao dịch
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let remainingSeconds = {{ remaining_seconds }};
+
+        function updateCountdown() {
+            const minutes = Math.floor(remainingSeconds / 60);
+            const seconds = remainingSeconds % 60;
+
+            document.getElementById("countdown").innerText =
+                `${minutes}:${String(seconds).padStart(2, "0")}`;
+
+            if (remainingSeconds <= 0) {
+                window.location.href = "{{ url_for('index') }}";
+                return;
+            }
+
+            remainingSeconds -= 1;
+        }
+
+        async function checkPayment() {
+            try {
+                const response = await fetch("{{ url_for('check_payment') }}");
+                const data = await response.json();
+
+                document.getElementById("paymentStatus").innerText = data.message;
+
+                if (data.paid) {
+                    window.location.href = "{{ url_for('success') }}";
+                    return;
+                }
+
+                if (data.expired) {
+                    window.location.href = "{{ url_for('index') }}";
+                }
+            } catch (error) {
+                document.getElementById("paymentStatus").innerText =
+                    "Không kiểm tra được giao dịch. Đang thử lại...";
+            }
+        }
+
+        updateCountdown();
+        checkPayment();
+
+        setInterval(updateCountdown, 1000);
+        setInterval(checkPayment, 3000);
+    </script>
+</body>
+</html>

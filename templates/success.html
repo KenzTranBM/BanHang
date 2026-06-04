@@ -1,0 +1,166 @@
+<!-- templates/success.html -->
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Đang làm món</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #f3f4f6;
+        }
+
+        .screen {
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .box {
+            background: white;
+            width: 620px;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 3px 18px #ccc;
+        }
+
+        .success {
+            color: #16a34a;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .customer-id {
+            font-size: 90px;
+            color: #2563eb;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+
+        .message {
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .sub-message {
+            font-size: 20px;
+            color: #555;
+        }
+
+        .order-detail {
+            text-align: left;
+            margin-top: 30px;
+            border-top: 1px solid #ddd;
+            padding-top: 20px;
+        }
+
+        a {
+            display: inline-block;
+            margin-top: 25px;
+            background: #2563eb;
+            color: white;
+            padding: 14px 22px;
+            border-radius: 10px;
+            text-decoration: none;
+        }
+        button {
+    display: inline-block;
+    margin-top: 25px;
+    background: #16a34a;
+    color: white;
+    padding: 14px 22px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+}
+    </style>
+</head>
+
+<body>
+    <div class="screen">
+        <div class="box">
+
+            {% set is_app_order = remote_order_text %}
+
+            <div class="success">Đã thanh toán thành công</div>
+
+            <div class="message" style="margin-top: 15px; color: {{ '#dc2626' if is_app_order else '#2563eb' }};">
+                {{ "Đơn đặt qua app" if is_app_order else "Đơn đặt tại quầy" }}
+            </div>
+
+            <div class="customer-id">
+                ID {{ remote_order_id if is_app_order else order.customer_id }}
+            </div>
+
+            <div class="message">
+                Đang tiến hành làm món cho ID {{ remote_order_id if is_app_order else order.customer_id }}
+            </div>
+
+            <p class="sub-message">
+                Vui lòng chờ trong giây lát
+            </p>
+
+            <div class="order-detail">
+
+                <p>
+                    <b>Thời gian:</b>
+                    {{ remote_order_time if is_app_order else order.created_at }}
+                </p>
+
+                {% if is_app_order %}
+
+                    {% for item in remote_order_items %}
+                    <p>
+                        {{ item.name }}
+                        - {{ item.size }}
+                        - {{ item.ice }}
+                        x {{ item.quantity }}
+                        = {{ item.subtotal }}
+                    </p>
+                    {% endfor %}
+
+                    <h2>
+                        Tổng tiền: {{ remote_order_total }}
+                    </h2>
+
+                {% else %}
+
+                    {% for item in order["items"] %}
+                    <p>
+                        {{ item.drink.name }}
+                        - {{ "Nhỏ" if item.size == "M" else "Lớn" }}
+                        - {{ "Có đá" if item.ice == "yes" else "Không đá" }}
+                        x {{ item.quantity }}
+                        = {{ item.subtotal | currency }}
+                    </p>
+                    {% endfor %}
+
+                    <h2>
+                        Tổng tiền: {{ order.total | currency }}
+                    </h2>
+
+                {% endif %}
+
+            </div>
+
+            {% if is_app_order %}
+            <form action="{{ url_for('complete_remote_order') }}" method="post">
+            {% else %}
+            <form action="{{ url_for('complete_order') }}" method="post">
+            {% endif %}
+
+                <button type="submit">
+                    Món đã làm xong - Cho order tiếp
+                </button>
+
+            </form>
+
+        </div>
+    </div>
+</body>
+</html>
