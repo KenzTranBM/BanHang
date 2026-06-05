@@ -1236,7 +1236,7 @@ def success():
         order=order,
         remote_order_text=None,
     )
-    @app.route("/api/arduino-status")
+@app.route("/api/arduino-status")
 def api_arduino_status():
     return jsonify({
         "done": ORDER_DONE,
