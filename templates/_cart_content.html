@@ -1,122 +1,37 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <title>Đang làm món</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- templates/_cart_content.html -->
+{% if not items %}
+<p>Chưa có món nào trong đơn.</p>
+{% else %}
+    {% for item in items %}
+    <div class="cart-item">
+        <strong>
+            {{ item.drink.name }}
+            - {{ "Nhỏ" if item.size == "M" else "Lớn" }}
+            - {{ "Có đá" if item.ice == "yes" else "Không đá" }}
+        </strong>
 
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f2f6f8;
-            text-align: center;
-            padding: 30px;
-        }
+        <p>Đơn giá: {{ item.price | currency }}</p>
 
-        .box {
-            max-width: 700px;
-            margin: auto;
-            background: white;
-            padding: 30px;
-            border-radius: 18px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
-        }
+        <div class="cart-row">
+            <form method="post" action="{{ url_for('update_cart', cart_key=item.cart_key) }}">
+                <input type="number" name="quantity" value="{{ item.quantity }}" min="0">
+                <button type="submit">Cập nhật</button>
+            </form>
 
-        h1 { color: #0a8f3c; }
+            <form method="post" action="{{ url_for('remove_from_cart', cart_key=item.cart_key) }}">
+                <button class="danger" type="submit">Xóa</button>
+            </form>
+        </div>
 
-        .status {
-            font-size: 22px;
-            color: #d35400;
-            margin: 20px 0;
-            font-weight: bold;
-        }
+        <p>Tạm tính: {{ item.subtotal | currency }}</p>
+    </div>
+    {% endfor %}
 
-        .item {
-            font-size: 18px;
-            margin: 8px 0;
-        }
-
-        .total {
-            font-size: 22px;
-            margin-top: 20px;
-            font-weight: bold;
-            color: #0f4c81;
-        }
-    </style>
-</head>
-
-<body>
-<div class="box">
-    {% set is_app_order = remote_order_text is not none %}
-
-    <h1>Đã thanh toán thành công</h1>
-    <h2>{{ "Đơn đặt qua app" if is_app_order else "Đơn đặt tại quầy" }}</h2>
-    <h3>ID {{ remote_order_id if is_app_order else order.customer_id }}</h3>
-
-    <div class="status" id="statusText">
-        Đang gửi món xuống Arduino...
+    <div class="total">
+        Tổng: {{ total | currency }}
     </div>
 
-    <p>Vui lòng chờ trong giây lát</p>
-
-    <p>Thời gian: {{ remote_order_time if is_app_order else order.created_at }}</p>
-
-    <hr>
-
-    {% if is_app_order %}
-        {% for item in remote_order_items %}
-            <div class="item">
-                {{ item.name }} - {{ item.size }} - {{ item.ice }} x {{ item.quantity }} = {{ item.subtotal }}
-            </div>
-        {% endfor %}
-        <div class="total">Tổng tiền: {{ remote_order_total }}</div>
-    {% else %}
-        {% for item in order["items"] %}
-            <div class="item">
-                {{ item.drink.name }} -
-                {{ "Nhỏ" if item.size == "M" else "Lớn" }} -
-                {{ "Có đá" if item.ice == "yes" else "Không đá" }}
-                x {{ item.quantity }} = {{ item.subtotal | currency }}
-            </div>
-        {% endfor %}
-        <div class="total">Tổng tiền: {{ order.total | currency }}</div>
-    {% endif %}
-</div>
-
-<script>
-    const doneApi = "{{ done_api }}";
-    let completed = false;
-
-    console.log("doneApi =", doneApi);
-
-    function checkArduinoDone() {
-        if (completed) return;
-
-        fetch("/api/arduino-status")
-            .then(res => res.json())
-            .then(data => {
-                if (data.done === true) {
-                    completed = true;
-                    document.getElementById("statusText").innerText =
-                        "Arduino báo OUT DONE - Giao nước thành công";
-
-                    fetch(doneApi, { method: "POST" })
-                        .then(() => {
-                            window.location.href = "/";
-                        });
-                } else {
-                    document.getElementById("statusText").innerText =
-                        "Đang làm món: " + (data.last_code || "Đang chờ gửi");
-                }
-            })
-            .catch(() => {
-                document.getElementById("statusText").innerText =
-                    "Không đọc được trạng thái Arduino";
-            });
-    }
-
-    setInterval(checkArduinoDone, 1000);
-</script>
-
-</body>
-</html>
+    <form method="post" action="{{ url_for('checkout') }}">
+        <button class="pay-button" type="submit">Thanh toán</button>
+    </form>
+{% endif %}
