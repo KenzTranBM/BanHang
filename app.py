@@ -22,6 +22,8 @@ arduino_lock = threading.Lock()
 ORDER_DONE = False
 ORDER_SENDING = False
 LAST_ORDER_CODE = ""
+CURRENT_ORDER_KEY = ""
+FINISHED_ORDER_KEYS = set()
 
 PRODUCT_CODE = {
     1: "SP1",  # Cà phê đen
@@ -62,20 +64,40 @@ def tao_ma_gui_arduino_from_item(item):
     return ma
 
 
-def gui_order_xuong_arduino(order):
+def tao_order_key(order, prefix="ORDER"):
+    parts = []
+
+    for item in order["items"]:
+        code = tao_ma_gui_arduino_from_item(item)
+        quantity = int(item.get("quantity", 1))
+        parts.append(f"{code}x{quantity}")
+
+    customer_id = order.get("customer_id", "")
+    created_at = order.get("created_at", "")
+
+    return f"{prefix}|{customer_id}|{created_at}|{','.join(parts)}"
+
+
+def gui_order_xuong_arduino(order, order_key):
     global ORDER_DONE, ORDER_SENDING, LAST_ORDER_CODE
+    global CURRENT_ORDER_KEY, FINISHED_ORDER_KEYS
 
-    # reset trạng thái đơn mới
-    ORDER_DONE = False
-    LAST_ORDER_CODE = ""
-
-    if ORDER_SENDING:
+    if order_key in FINISHED_ORDER_KEYS:
+        print("Đơn đã hoàn thành, không gửi lại:", order_key, flush=True)
         return
 
+    if ORDER_SENDING and CURRENT_ORDER_KEY == order_key:
+        print("Đơn đang làm, không gửi lại:", order_key, flush=True)
+        return
+
+    ORDER_DONE = False
     ORDER_SENDING = True
+    LAST_ORDER_CODE = ""
+    CURRENT_ORDER_KEY = order_key
 
     def worker():
         global ORDER_DONE, ORDER_SENDING, LAST_ORDER_CODE
+        global CURRENT_ORDER_KEY, FINISHED_ORDER_KEYS
 
         try:
             if not ket_noi_arduino():
@@ -83,10 +105,8 @@ def gui_order_xuong_arduino(order):
                 ORDER_DONE = False
                 return
 
-            # xoá dữ liệu OUT DONE cũ còn nằm trong buffer serial
             with arduino_lock:
                 arduino.reset_input_buffer()
-                arduino.reset_output_buffer()
 
             codes = []
 
@@ -103,28 +123,29 @@ def gui_order_xuong_arduino(order):
                 for code in codes:
                     arduino.write((code + "\n").encode("utf-8"))
                     arduino.flush()
-                    print("Đã gửi Arduino:", code)
+                    print("Đã gửi Arduino:", code, flush=True)
                     time.sleep(0.3)
 
-            # chỉ bắt đầu nghe DONE sau khi đã gửi mã món mới
             while True:
-                if arduino.in_waiting:
+                if arduino.in_waiting > 0:
                     line = arduino.readline().decode("utf-8", errors="ignore").strip()
-                    print("Arduino gửi:", line)
+                    print("Arduino gửi:", repr(line), flush=True)
 
-                    if line == "OUT DONE":
+                    if "OUT DONE" in line:
                         ORDER_DONE = True
                         ORDER_SENDING = False
+                        FINISHED_ORDER_KEYS.add(order_key)
+                        print("Đã nhận OUT DONE:", order_key, flush=True)
                         break
 
                 time.sleep(0.1)
 
         except Exception as e:
-            print("Lỗi gửi Arduino:", e)
+            print("Lỗi gửi Arduino:", e, flush=True)
             ORDER_SENDING = False
             ORDER_DONE = False
 
-    threading.Thread(target=worker, daemon=True).start()   
+    threading.Thread(target=worker, daemon=True).start()
 app = Flask(__name__)
 app.secret_key = "change-this-secret-key"
 
@@ -1224,7 +1245,11 @@ def success():
     if request.args.get("remote") == "1" and remote_order_text:
         remote_order = parse_remote_order_text(remote_order_text)
 
-        order_for_arduino = {"items": []}
+        order_for_arduino = {
+    "customer_id": remote_order["customer_id"],
+    "created_at": remote_order["created_at"],
+    "items": []
+}
 
         for item in remote_order["items"]:
             ten_mon = item["name"].lower()
@@ -1248,7 +1273,8 @@ def success():
             })
 
         print("Đơn app gửi Arduino:", order_for_arduino, flush=True)
-        gui_order_xuong_arduino(order_for_arduino)
+        order_key = tao_order_key(order_for_arduino, "REMOTE")
+        gui_order_xuong_arduino(order_for_arduino, order_key)
 
         return render_template(
             "success.html",
@@ -1266,7 +1292,8 @@ def success():
         return redirect(url_for("index"))
 
     print("Đơn tại quầy gửi Arduino:", order, flush=True)
-    gui_order_xuong_arduino(order)
+    order_key = tao_order_key(order, "LOCAL")
+    gui_order_xuong_arduino(order, order_key)
 
     return render_template(
         "success.html",
@@ -1366,4 +1393,4 @@ def api_tts():
         return jsonify({"error": str(error)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
