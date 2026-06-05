@@ -9,7 +9,112 @@ from urllib.parse import urlencode
 import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 from openai import OpenAI
+import serial
+import threading
+import time
 
+ARDUINO_PORT = "/dev/ttyACM0"
+ARDUINO_BAUD = 9600
+
+arduino = None
+arduino_lock = threading.Lock()
+
+ORDER_DONE = False
+ORDER_SENDING = False
+LAST_ORDER_CODE = ""
+
+PRODUCT_CODE = {
+    1: "SP1",  # Cà phê đen
+    2: "SP2",  # Cà phê sữa
+    3: "SP3",  # Bạc xỉu
+    4: "SP4",  # Milo
+}
+
+
+def ket_noi_arduino():
+    global arduino
+    try:
+        if arduino is None or not arduino.is_open:
+            arduino = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=1)
+            time.sleep(2)
+            print("Đã kết nối Arduino:", ARDUINO_PORT)
+        return True
+    except Exception as e:
+        print("Lỗi kết nối Arduino:", e)
+        return False
+
+
+def tao_ma_gui_arduino_from_item(item):
+    drink_id = item["drink"]["id"]
+    size = item["size"]          # M / L
+    ice = item["ice"]            # yes / no
+
+    ma = PRODUCT_CODE.get(drink_id, "SP1")
+
+    if size == "L":
+        ma += "LON"
+    else:
+        ma += "NHO"
+
+    if ice == "no":
+        ma += "KD"
+
+    return ma
+
+
+def gui_order_xuong_arduino(order):
+    global ORDER_DONE, ORDER_SENDING, LAST_ORDER_CODE
+
+    if ORDER_SENDING:
+        return
+
+    ORDER_DONE = False
+    ORDER_SENDING = True
+
+    def worker():
+        global ORDER_DONE, ORDER_SENDING, LAST_ORDER_CODE
+
+        try:
+            if not ket_noi_arduino():
+                ORDER_SENDING = False
+                return
+
+            codes = []
+
+            for item in order["items"]:
+                code = tao_ma_gui_arduino_from_item(item)
+                quantity = int(item.get("quantity", 1))
+
+                for _ in range(quantity):
+                    codes.append(code)
+
+            LAST_ORDER_CODE = ",".join(codes)
+
+            with arduino_lock:
+                for code in codes:
+                    arduino.write((code + "\n").encode("utf-8"))
+                    arduino.flush()
+                    print("Đã gửi Arduino:", code)
+                    time.sleep(0.3)
+
+            while True:
+                if arduino.in_waiting:
+                    line = arduino.readline().decode("utf-8", errors="ignore").strip()
+                    print("Arduino gửi:", line)
+
+                    if line == "OUT DONE":
+                        ORDER_DONE = True
+                        ORDER_SENDING = False
+                        break
+
+                time.sleep(0.1)
+
+        except Exception as e:
+            print("Lỗi gửi Arduino:", e)
+            ORDER_SENDING = False
+
+    threading.Thread(target=worker, daemon=True).start()
+    
 app = Flask(__name__)
 app.secret_key = "change-this-secret-key"
 
@@ -1107,15 +1212,11 @@ def success():
     remote_order_text = session.get("remote_order_text")
 
     if request.args.get("remote") == "1" and remote_order_text:
-
-        remote_order = parse_remote_order_text(
-            remote_order_text
-        )
+        remote_order = parse_remote_order_text(remote_order_text)
 
         return render_template(
             "success.html",
             order=None,
-
             remote_order_text=remote_order_text,
             remote_order_id=remote_order["customer_id"],
             remote_order_time=remote_order["created_at"],
@@ -1128,11 +1229,20 @@ def success():
     if not order:
         return redirect(url_for("index"))
 
+    gui_order_xuong_arduino(order)
+
     return render_template(
         "success.html",
         order=order,
         remote_order_text=None,
     )
+    @app.route("/api/arduino-status")
+def api_arduino_status():
+    return jsonify({
+        "done": ORDER_DONE,
+        "sending": ORDER_SENDING,
+        "last_code": LAST_ORDER_CODE,
+    })
 
 @app.route("/complete-order", methods=["POST"])
 def complete_order():
