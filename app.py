@@ -1319,19 +1319,30 @@ def complete_order():
 
 @app.route("/complete-remote-order", methods=["POST"])
 def complete_remote_order():
+    global ORDER_DONE, ORDER_SENDING, LAST_ORDER_CODE, CURRENT_ORDER_KEY
+
     try:
         response = requests.post(
             "http://103.189.203.6:5000/api/complete-public-order",
-            timeout=3,
+            timeout=5,
         )
+        print("Kết quả xóa order public:", response.status_code, response.text, flush=True)
         response.raise_for_status()
     except requests.RequestException as error:
-        print("Không thể hoàn thành order public:", error)
+        print("Không thể hoàn thành order public:", error, flush=True)
 
     session.pop("remote_order_text", None)
     session.modified = True
 
-    return redirect(url_for("index"))
+    ORDER_DONE = False
+    ORDER_SENDING = False
+    LAST_ORDER_CODE = ""
+    CURRENT_ORDER_KEY = ""
+
+    return jsonify({
+        "ok": True,
+        "message": "Đã xóa đơn remote và reset trạng thái"
+    })
 import re
 def parse_remote_order_text(order_text):
     result = {
