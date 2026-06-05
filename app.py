@@ -13,7 +13,7 @@ import serial
 import threading
 import time
 
-ARDUINO_PORT = "/dev/ttyACM1"
+ARDUINO_PORT = "/dev/ttyACM0"
 ARDUINO_BAUD = 9600
 
 arduino = None
@@ -67,7 +67,7 @@ def tao_ma_gui_arduino_from_item(item):
 def tao_order_key(order, prefix="ORDER"):
     parts = []
 
-    for item in order["items"]:
+    for item in order.get("items", []):
         code = tao_ma_gui_arduino_from_item(item)
         quantity = int(item.get("quantity", 1))
         parts.append(f"{code}x{quantity}")
@@ -105,27 +105,35 @@ def gui_order_xuong_arduino(order, order_key):
                 ORDER_DONE = False
                 return
 
+            # Xóa dữ liệu cũ trước khi gửi món mới để không dính OUT DONE cũ.
             with arduino_lock:
                 arduino.reset_input_buffer()
 
             codes = []
 
-            for item in order["items"]:
+            for item in order.get("items", []):
                 code = tao_ma_gui_arduino_from_item(item)
                 quantity = int(item.get("quantity", 1))
 
                 for _ in range(quantity):
                     codes.append(code)
 
+            if not codes:
+                print("Đơn không có mã món để gửi Arduino", flush=True)
+                ORDER_SENDING = False
+                ORDER_DONE = False
+                return
+
             LAST_ORDER_CODE = ",".join(codes)
 
             with arduino_lock:
                 for code in codes:
-                    arduino.write((code + "\n").encode("utf-8"))
+                    arduino.write((code + "").encode("utf-8"))
                     arduino.flush()
                     print("Đã gửi Arduino:", code, flush=True)
                     time.sleep(0.3)
 
+            # Chỉ nghe OUT DONE sau khi đã gửi mã món mới.
             while True:
                 if arduino.in_waiting > 0:
                     line = arduino.readline().decode("utf-8", errors="ignore").strip()
@@ -135,7 +143,7 @@ def gui_order_xuong_arduino(order, order_key):
                         ORDER_DONE = True
                         ORDER_SENDING = False
                         FINISHED_ORDER_KEYS.add(order_key)
-                        print("Đã nhận OUT DONE:", order_key, flush=True)
+                        print("Đã nhận OUT DONE cho đơn:", order_key, flush=True)
                         break
 
                 time.sleep(0.1)
@@ -146,6 +154,7 @@ def gui_order_xuong_arduino(order, order_key):
             ORDER_DONE = False
 
     threading.Thread(target=worker, daemon=True).start()
+
 app = Flask(__name__)
 app.secret_key = "change-this-secret-key"
 
@@ -157,6 +166,7 @@ PAYMENT_TIMEOUT_SECONDS = 300
 SEPAY_TRANSACTIONS_URL = "https://my.sepay.vn/userapi/transactions/list"
 ORDER_FILE = "order.txt"
 PUBLIC_ORDER_STATUS_URL = "http://103.189.203.6:5000/api/order-status"
+PUBLIC_COMPLETE_ORDER_URL = PUBLIC_ORDER_STATUS_URL.replace("/api/order-status", "/api/complete-public-order")
 IS_PUBLIC_SERVER = False
 
 def get_public_order_status():
@@ -1246,12 +1256,12 @@ def success():
         remote_order = parse_remote_order_text(remote_order_text)
 
         order_for_arduino = {
-    "customer_id": remote_order["customer_id"],
-    "created_at": remote_order["created_at"],
-    "items": []
-}
+            "customer_id": remote_order.get("customer_id", ""),
+            "created_at": remote_order.get("created_at", ""),
+            "items": []
+        }
 
-        for item in remote_order["items"]:
+        for item in remote_order.get("items", []):
             ten_mon = item["name"].lower()
             size_text = item["size"].lower()
             ice_text = item["ice"].lower()
@@ -1260,7 +1270,7 @@ def success():
                 drink_id = 2
             elif "bạc" in ten_mon:
                 drink_id = 3
-            elif "milo" in ten_mon:
+            elif "milo" in ten_mon or "matcha" in ten_mon:
                 drink_id = 4
             else:
                 drink_id = 1
@@ -1272,18 +1282,19 @@ def success():
                 "quantity": int(item["quantity"])
             })
 
-        print("Đơn app gửi Arduino:", order_for_arduino, flush=True)
         order_key = tao_order_key(order_for_arduino, "REMOTE")
+        print("Đơn app gửi Arduino:", order_key, order_for_arduino, flush=True)
         gui_order_xuong_arduino(order_for_arduino, order_key)
 
         return render_template(
             "success.html",
             order=None,
             remote_order_text=remote_order_text,
-            remote_order_id=remote_order["customer_id"],
-            remote_order_time=remote_order["created_at"],
-            remote_order_items=remote_order["items"],
-            remote_order_total=remote_order["total"],
+            remote_order_id=remote_order.get("customer_id", ""),
+            remote_order_time=remote_order.get("created_at", ""),
+            remote_order_items=remote_order.get("items", []),
+            remote_order_total=remote_order.get("total", ""),
+            done_api="/complete-remote-order",
         )
 
     order = session.get("last_order")
@@ -1291,14 +1302,15 @@ def success():
     if not order:
         return redirect(url_for("index"))
 
-    print("Đơn tại quầy gửi Arduino:", order, flush=True)
     order_key = tao_order_key(order, "LOCAL")
+    print("Đơn tại quầy gửi Arduino:", order_key, flush=True)
     gui_order_xuong_arduino(order, order_key)
 
     return render_template(
         "success.html",
         order=order,
         remote_order_text=None,
+        done_api="/complete-order",
     )
 @app.route("/api/arduino-status")
 def api_arduino_status():
@@ -1306,6 +1318,7 @@ def api_arduino_status():
         "done": ORDER_DONE,
         "sending": ORDER_SENDING,
         "last_code": LAST_ORDER_CODE,
+        "current_order_key": CURRENT_ORDER_KEY,
     })
 
 @app.route("/complete-order", methods=["POST"])
@@ -1322,10 +1335,7 @@ def complete_remote_order():
     global ORDER_DONE, ORDER_SENDING, LAST_ORDER_CODE, CURRENT_ORDER_KEY
 
     try:
-        response = requests.post(
-            "http://103.189.203.6:5000/api/complete-public-order",
-            timeout=5,
-        )
+        response = requests.post(PUBLIC_COMPLETE_ORDER_URL, timeout=5)
         print("Kết quả xóa order public:", response.status_code, response.text, flush=True)
         response.raise_for_status()
     except requests.RequestException as error:
@@ -1339,10 +1349,7 @@ def complete_remote_order():
     LAST_ORDER_CODE = ""
     CURRENT_ORDER_KEY = ""
 
-    return jsonify({
-        "ok": True,
-        "message": "Đã xóa đơn remote và reset trạng thái"
-    })
+    return jsonify({"success": True})
 import re
 def parse_remote_order_text(order_text):
     result = {
