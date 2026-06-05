@@ -1227,15 +1227,15 @@ def success():
         order_for_arduino = {"items": []}
 
         for item in remote_order["items"]:
-            name = item["name"].lower()
+            ten_mon = item["name"].lower()
             size_text = item["size"].lower()
             ice_text = item["ice"].lower()
 
-            if "sữa" in name:
+            if "sữa" in ten_mon:
                 drink_id = 2
-            elif "bạc" in name:
+            elif "bạc" in ten_mon:
                 drink_id = 3
-            elif "milo" in name:
+            elif "milo" in ten_mon:
                 drink_id = 4
             else:
                 drink_id = 1
