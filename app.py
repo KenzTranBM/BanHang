@@ -65,10 +65,13 @@ def tao_ma_gui_arduino_from_item(item):
 def gui_order_xuong_arduino(order):
     global ORDER_DONE, ORDER_SENDING, LAST_ORDER_CODE
 
+    # reset trạng thái đơn mới
+    ORDER_DONE = False
+    LAST_ORDER_CODE = ""
+
     if ORDER_SENDING:
         return
 
-    ORDER_DONE = False
     ORDER_SENDING = True
 
     def worker():
@@ -77,7 +80,13 @@ def gui_order_xuong_arduino(order):
         try:
             if not ket_noi_arduino():
                 ORDER_SENDING = False
+                ORDER_DONE = False
                 return
+
+            # xoá dữ liệu OUT DONE cũ còn nằm trong buffer serial
+            with arduino_lock:
+                arduino.reset_input_buffer()
+                arduino.reset_output_buffer()
 
             codes = []
 
@@ -97,6 +106,7 @@ def gui_order_xuong_arduino(order):
                     print("Đã gửi Arduino:", code)
                     time.sleep(0.3)
 
+            # chỉ bắt đầu nghe DONE sau khi đã gửi mã món mới
             while True:
                 if arduino.in_waiting:
                     line = arduino.readline().decode("utf-8", errors="ignore").strip()
@@ -112,9 +122,9 @@ def gui_order_xuong_arduino(order):
         except Exception as e:
             print("Lỗi gửi Arduino:", e)
             ORDER_SENDING = False
+            ORDER_DONE = False
 
-    threading.Thread(target=worker, daemon=True).start()
-    
+    threading.Thread(target=worker, daemon=True).start()   
 app = Flask(__name__)
 app.secret_key = "change-this-secret-key"
 
