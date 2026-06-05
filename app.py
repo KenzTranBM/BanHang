@@ -76,8 +76,6 @@ def tao_order_key(order, prefix="ORDER"):
     created_at = order.get("created_at", "")
 
     return f"{prefix}|{customer_id}|{created_at}|{','.join(parts)}"
-
-
 def gui_order_xuong_arduino(order, order_key):
     global ORDER_DONE
     global ORDER_SENDING
