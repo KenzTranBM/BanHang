@@ -49,7 +49,7 @@
 
 <body>
 <div class="box">
-    {% set is_app_order = remote_order_text %}
+    {% set is_app_order = remote_order_text is not none %}
 
     <h1>Đã thanh toán thành công</h1>
 
@@ -84,7 +84,6 @@
         <div class="total">
             Tổng tiền: {{ remote_order_total }}
         </div>
-
     {% else %}
         {% for item in order["items"] %}
             <div class="item">
@@ -103,7 +102,8 @@
 </div>
 
 <script>
-    const isAppOrder = {{ "true" if is_app_order else "false" }};
+    const isAppOrder = {{ "true" if remote_order_text is not none else "false" }};
+    console.log("isAppOrder =", isAppOrder);
 
     function checkArduinoDone() {
         fetch("/api/arduino-status")
