@@ -1227,24 +1227,27 @@ def success():
         order_for_arduino = {"items": []}
 
         for item in remote_order["items"]:
-            name = item["name"].lower()
+            ten_mon = item["name"].lower()
+            size_text = item["size"].lower()
+            ice_text = item["ice"].lower()
 
-            if "sữa" in name:
+            if "sữa" in ten_mon:
                 drink_id = 2
-            elif "bạc" in name:
+            elif "bạc" in ten_mon:
                 drink_id = 3
-            elif "milo" in name:
+            elif "milo" in ten_mon:
                 drink_id = 4
             else:
                 drink_id = 1
 
             order_for_arduino["items"].append({
                 "drink": {"id": drink_id},
-                "size": "L" if item["size"] == "Lớn" else "M",
-                "ice": "no" if item["ice"] == "Không đá" else "yes",
+                "size": "L" if "lớn" in size_text else "M",
+                "ice": "no" if "không" in ice_text else "yes",
                 "quantity": int(item["quantity"])
             })
 
+        print("Đơn app gửi Arduino:", order_for_arduino)
         gui_order_xuong_arduino(order_for_arduino)
 
         return render_template(
@@ -1262,6 +1265,7 @@ def success():
     if not order:
         return redirect(url_for("index"))
 
+    print("Đơn tại quầy gửi Arduino:", order)
     gui_order_xuong_arduino(order)
 
     return render_template(
