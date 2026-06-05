@@ -1224,6 +1224,32 @@ def success():
     if request.args.get("remote") == "1" and remote_order_text:
         remote_order = parse_remote_order_text(remote_order_text)
 
+        order_for_arduino = {
+            "items": []
+        }
+
+        for item in remote_order["items"]:
+
+            ten_mon = item["name"].lower()
+
+            if "sữa" in ten_mon:
+                drink_id = 2
+            elif "bạc" in ten_mon:
+                drink_id = 3
+            elif "milo" in ten_mon:
+                drink_id = 4
+            else:
+                drink_id = 1
+
+            order_for_arduino["items"].append({
+                "drink": {"id": drink_id},
+                "size": "L" if item["size"] == "Lớn" else "M",
+                "ice": "no" if item["ice"] == "Không đá" else "yes",
+                "quantity": int(item["quantity"])
+            })
+
+        gui_order_xuong_arduino(order_for_arduino)
+
         return render_template(
             "success.html",
             order=None,
