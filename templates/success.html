@@ -48,14 +48,20 @@
 </head>
 
 <body>
+
 <div class="box">
+
     {% set is_app_order = remote_order_text is not none %}
 
     <h1>Đã thanh toán thành công</h1>
 
-    <h2>{{ "Đơn đặt qua app" if is_app_order else "Đơn đặt tại quầy" }}</h2>
+    <h2>
+        {{ "Đơn đặt qua app" if is_app_order else "Đơn đặt tại quầy" }}
+    </h2>
 
-    <h3>ID {{ remote_order_id if is_app_order else order.customer_id }}</h3>
+    <h3>
+        ID {{ remote_order_id if is_app_order else order.customer_id }}
+    </h3>
 
     <div class="status" id="statusText">
         Đang gửi món xuống Arduino...
@@ -71,69 +77,113 @@
     <hr>
 
     {% if is_app_order %}
+
         {% for item in remote_order_items %}
             <div class="item">
-                {{ item.name }} -
-                {{ item.size }} -
+                {{ item.name }}
+                -
+                {{ item.size }}
+                -
                 {{ item.ice }}
                 x {{ item.quantity }}
-                = {{ item.subtotal }}
+                =
+                {{ item.subtotal }}
             </div>
         {% endfor %}
 
         <div class="total">
             Tổng tiền: {{ remote_order_total }}
         </div>
+
     {% else %}
+
         {% for item in order["items"] %}
             <div class="item">
-                {{ item.drink.name }} -
-                {{ "Nhỏ" if item.size == "M" else "Lớn" }} -
+
+                {{ item.drink.name }}
+                -
+
+                {{ "Nhỏ" if item.size == "M" else "Lớn" }}
+                -
+
                 {{ "Có đá" if item.ice == "yes" else "Không đá" }}
+
                 x {{ item.quantity }}
-                = {{ item.subtotal | currency }}
+
+                =
+
+                {{ item.subtotal | currency }}
+
             </div>
         {% endfor %}
 
         <div class="total">
             Tổng tiền: {{ order.total | currency }}
         </div>
+
     {% endif %}
+
 </div>
 
 <script>
-    const isAppOrder = {{ "true" if remote_order_text is not none else "false" }};
-    console.log("isAppOrder =", isAppOrder);
+
+    let completed = false;
+
+    const doneApi = "{{ done_api }}";
+
+    console.log("doneApi =", doneApi);
 
     function checkArduinoDone() {
+
+        if (completed) {
+            return;
+        }
+
         fetch("/api/arduino-status")
+
             .then(res => res.json())
+
             .then(data => {
+
                 if (data.done === true) {
+
+                    completed = true;
+
                     document.getElementById("statusText").innerText =
                         "Arduino báo OUT DONE - Giao nước thành công";
 
-                    const doneApi = isAppOrder
-                        ? "/complete-remote-order"
-                        : "/complete-order";
-
                     fetch(doneApi, {
                         method: "POST"
-                    }).then(() => {
+                    })
+
+                    .then(() => {
                         window.location.href = "/";
+                    })
+
+                    .catch(err => {
+                        console.log(err);
                     });
+
                 } else {
+
                     document.getElementById("statusText").innerText =
-                        "Đang làm món: " + (data.last_code || "Đang chờ gửi");
+                        "Đang làm món: " +
+                        (data.last_code || "Đang chờ gửi");
+
                 }
+
             })
+
             .catch(() => {
+
                 document.getElementById("statusText").innerText =
                     "Không đọc được trạng thái Arduino";
+
             });
     }
 
     setInterval(checkArduinoDone, 1000);
+
 </script>
 
 </body>
