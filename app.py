@@ -79,79 +79,77 @@ def tao_order_key(order, prefix="ORDER"):
 
 
 def gui_order_xuong_arduino(order, order_key):
-    global ORDER_DONE, ORDER_SENDING, LAST_ORDER_CODE
-    global CURRENT_ORDER_KEY, FINISHED_ORDER_KEYS
+    global ORDER_DONE
+    global ORDER_SENDING
+    global LAST_ORDER_CODE
 
-    if order_key in FINISHED_ORDER_KEYS:
-        print("Đơn đã hoàn thành, không gửi lại:", order_key, flush=True)
-        return
-
-    if ORDER_SENDING and CURRENT_ORDER_KEY == order_key:
-        print("Đơn đang làm, không gửi lại:", order_key, flush=True)
+    if ORDER_SENDING:
+        print("Đang có đơn chạy, bỏ qua")
         return
 
     ORDER_DONE = False
     ORDER_SENDING = True
     LAST_ORDER_CODE = ""
-    CURRENT_ORDER_KEY = order_key
 
     def worker():
-        global ORDER_DONE, ORDER_SENDING, LAST_ORDER_CODE
-        global CURRENT_ORDER_KEY, FINISHED_ORDER_KEYS
+        global ORDER_DONE
+        global ORDER_SENDING
+        global LAST_ORDER_CODE
 
         try:
             if not ket_noi_arduino():
+                print("Không kết nối được Arduino")
                 ORDER_SENDING = False
-                ORDER_DONE = False
                 return
 
-            # Xóa dữ liệu cũ trước khi gửi món mới để không dính OUT DONE cũ.
             with arduino_lock:
                 arduino.reset_input_buffer()
+                arduino.reset_output_buffer()
 
             codes = []
 
-            for item in order.get("items", []):
+            for item in order["items"]:
                 code = tao_ma_gui_arduino_from_item(item)
                 quantity = int(item.get("quantity", 1))
 
                 for _ in range(quantity):
                     codes.append(code)
 
-            if not codes:
-                print("Đơn không có mã món để gửi Arduino", flush=True)
-                ORDER_SENDING = False
-                ORDER_DONE = False
-                return
+            # Ghép toàn bộ đơn thành 1 chuỗi
+            chuoi_gui = ",".join(codes)
 
-            LAST_ORDER_CODE = ",".join(codes)
+            LAST_ORDER_CODE = chuoi_gui
 
             with arduino_lock:
-                for code in codes:
-                    arduino.write((code + "").encode("utf-8"))
-                    arduino.flush()
-                    print("Đã gửi Arduino:", code, flush=True)
-                    time.sleep(0.3)
+                arduino.write((chuoi_gui + "#\n").encode("utf-8"))
+                arduino.flush()
 
-            # Chỉ nghe OUT DONE sau khi đã gửi mã món mới.
+            print("Đã gửi Arduino:", chuoi_gui)
+
             while True:
                 if arduino.in_waiting > 0:
-                    line = arduino.readline().decode("utf-8", errors="ignore").strip()
-                    print("Arduino gửi:", repr(line), flush=True)
+
+                    line = (
+                        arduino.readline()
+                        .decode("utf-8", errors="ignore")
+                        .strip()
+                    )
+
+                    print("Arduino gửi:", line)
 
                     if "OUT DONE" in line:
                         ORDER_DONE = True
                         ORDER_SENDING = False
-                        FINISHED_ORDER_KEYS.add(order_key)
-                        print("Đã nhận OUT DONE cho đơn:", order_key, flush=True)
+
+                        print("Đã nhận OUT DONE")
                         break
 
                 time.sleep(0.1)
 
         except Exception as e:
-            print("Lỗi gửi Arduino:", e, flush=True)
-            ORDER_SENDING = False
+            print("Lỗi gửi Arduino:", e)
             ORDER_DONE = False
+            ORDER_SENDING = False
 
     threading.Thread(target=worker, daemon=True).start()
 
