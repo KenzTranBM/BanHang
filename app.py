@@ -13,7 +13,7 @@ import serial
 import threading
 import time
 
-ARDUINO_PORT = "/dev/ttyACM0"
+ARDUINO_PORT = "/dev/ttyACM1"
 ARDUINO_BAUD = 9600
 
 arduino = None
