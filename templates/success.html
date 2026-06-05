@@ -1,166 +1,134 @@
-<!-- templates/success.html -->
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <title>Đang làm món</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 0;
-            background: #f3f4f6;
-        }
-
-        .screen {
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            background: #f2f6f8;
             text-align: center;
+            padding: 30px;
         }
 
         .box {
+            max-width: 700px;
+            margin: auto;
             background: white;
-            width: 620px;
-            padding: 40px;
-            border-radius: 20px;
-            box-shadow: 0 3px 18px #ccc;
+            padding: 30px;
+            border-radius: 18px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
         }
 
-        .success {
-            color: #16a34a;
-            font-size: 28px;
-            font-weight: bold;
+        h1 {
+            color: #0a8f3c;
         }
 
-        .customer-id {
-            font-size: 90px;
-            color: #2563eb;
-            font-weight: bold;
+        .status {
+            font-size: 22px;
+            color: #d35400;
             margin: 20px 0;
-        }
-
-        .message {
-            font-size: 28px;
             font-weight: bold;
         }
 
-        .sub-message {
-            font-size: 20px;
-            color: #555;
+        .item {
+            font-size: 18px;
+            margin: 8px 0;
         }
 
-        .order-detail {
-            text-align: left;
-            margin-top: 30px;
-            border-top: 1px solid #ddd;
-            padding-top: 20px;
+        .total {
+            font-size: 22px;
+            margin-top: 20px;
+            font-weight: bold;
+            color: #0f4c81;
         }
-
-        a {
-            display: inline-block;
-            margin-top: 25px;
-            background: #2563eb;
-            color: white;
-            padding: 14px 22px;
-            border-radius: 10px;
-            text-decoration: none;
-        }
-        button {
-    display: inline-block;
-    margin-top: 25px;
-    background: #16a34a;
-    color: white;
-    padding: 14px 22px;
-    border-radius: 10px;
-    border: none;
-    cursor: pointer;
-    font-size: 16px;
-}
     </style>
 </head>
 
 <body>
-    <div class="screen">
-        <div class="box">
+<div class="box">
+    {% set is_app_order = remote_order_text %}
 
-            {% set is_app_order = remote_order_text %}
+    <h1>Đã thanh toán thành công</h1>
 
-            <div class="success">Đã thanh toán thành công</div>
+    <h2>{{ "Đơn đặt qua app" if is_app_order else "Đơn đặt tại quầy" }}</h2>
 
-            <div class="message" style="margin-top: 15px; color: {{ '#dc2626' if is_app_order else '#2563eb' }};">
-                {{ "Đơn đặt qua app" if is_app_order else "Đơn đặt tại quầy" }}
-            </div>
+    <h3>ID {{ remote_order_id if is_app_order else order.customer_id }}</h3>
 
-            <div class="customer-id">
-                ID {{ remote_order_id if is_app_order else order.customer_id }}
-            </div>
-
-            <div class="message">
-                Đang tiến hành làm món cho ID {{ remote_order_id if is_app_order else order.customer_id }}
-            </div>
-
-            <p class="sub-message">
-                Vui lòng chờ trong giây lát
-            </p>
-
-            <div class="order-detail">
-
-                <p>
-                    <b>Thời gian:</b>
-                    {{ remote_order_time if is_app_order else order.created_at }}
-                </p>
-
-                {% if is_app_order %}
-
-                    {% for item in remote_order_items %}
-                    <p>
-                        {{ item.name }}
-                        - {{ item.size }}
-                        - {{ item.ice }}
-                        x {{ item.quantity }}
-                        = {{ item.subtotal }}
-                    </p>
-                    {% endfor %}
-
-                    <h2>
-                        Tổng tiền: {{ remote_order_total }}
-                    </h2>
-
-                {% else %}
-
-                    {% for item in order["items"] %}
-                    <p>
-                        {{ item.drink.name }}
-                        - {{ "Nhỏ" if item.size == "M" else "Lớn" }}
-                        - {{ "Có đá" if item.ice == "yes" else "Không đá" }}
-                        x {{ item.quantity }}
-                        = {{ item.subtotal | currency }}
-                    </p>
-                    {% endfor %}
-
-                    <h2>
-                        Tổng tiền: {{ order.total | currency }}
-                    </h2>
-
-                {% endif %}
-
-            </div>
-
-            {% if is_app_order %}
-            <form action="{{ url_for('complete_remote_order') }}" method="post">
-            {% else %}
-            <form action="{{ url_for('complete_order') }}" method="post">
-            {% endif %}
-
-                <button type="submit">
-                    Món đã làm xong - Cho order tiếp
-                </button>
-
-            </form>
-
-        </div>
+    <div class="status" id="statusText">
+        Đang gửi món xuống Arduino...
     </div>
+
+    <p>Vui lòng chờ trong giây lát</p>
+
+    <p>
+        Thời gian:
+        {{ remote_order_time if is_app_order else order.created_at }}
+    </p>
+
+    <hr>
+
+    {% if is_app_order %}
+        {% for item in remote_order_items %}
+            <div class="item">
+                {{ item.name }} -
+                {{ item.size }} -
+                {{ item.ice }}
+                x {{ item.quantity }}
+                = {{ item.subtotal }}
+            </div>
+        {% endfor %}
+
+        <div class="total">
+            Tổng tiền: {{ remote_order_total }}
+        </div>
+
+    {% else %}
+        {% for item in order["items"] %}
+            <div class="item">
+                {{ item.drink.name }} -
+                {{ "Nhỏ" if item.size == "M" else "Lớn" }} -
+                {{ "Có đá" if item.ice == "yes" else "Không đá" }}
+                x {{ item.quantity }}
+                = {{ item.subtotal | currency }}
+            </div>
+        {% endfor %}
+
+        <div class="total">
+            Tổng tiền: {{ order.total | currency }}
+        </div>
+    {% endif %}
+</div>
+
+<script>
+    function checkArduinoDone() {
+        fetch("/api/arduino-status")
+            .then(res => res.json())
+            .then(data => {
+                if (data.done === true) {
+                    document.getElementById("statusText").innerText =
+                        "Arduino báo OUT DONE - Giao nước thành công";
+
+                    fetch("/complete-order", {
+                        method: "POST"
+                    }).then(() => {
+                        window.location.href = "/";
+                    });
+                } else {
+                    document.getElementById("statusText").innerText =
+                        "Đang làm món: " + (data.last_code || "Đang chờ gửi");
+                }
+            })
+            .catch(() => {
+                document.getElementById("statusText").innerText =
+                    "Không đọc được trạng thái Arduino";
+            });
+    }
+
+    setInterval(checkArduinoDone, 1000);
+</script>
+
 </body>
 </html>
